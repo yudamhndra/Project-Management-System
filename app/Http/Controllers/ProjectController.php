@@ -10,7 +10,9 @@ class ProjectController extends Controller
 {
     public function index()
     {
-        $projects = Project::with('tasks')->get();
+        $projects = Project::with('tasks:id,project_id,title,status')->get()->map(function ($project) {
+            return $this->formatProjectResponse($project);
+        });
         return response()->json($projects);
     }
 
@@ -28,19 +30,19 @@ class ProjectController extends Controller
         }
 
         $project = Project::create($request->all());
-
-        return response()->json($project, 201);
+        $project->load('tasks:id,project_id,title,status');
+        return response()->json($this->formatProjectResponse($project), 201);
     }
 
     public function show($id)
     {
-        $project = Project::with('tasks')->find($id);
+        $project = Project::with('tasks:id,project_id,title,status')->find($id);
 
         if (!$project) {
             return response()->json(['message' => 'Project not found'], 404);
         }
 
-        return response()->json($project);
+        return response()->json($this->formatProjectResponse($project));
     }
 
     public function update(Request $request, $id)
@@ -63,8 +65,8 @@ class ProjectController extends Controller
         }
 
         $project->update($request->all());
-
-        return response()->json($project);
+        $project->load('tasks:id,project_id,title,status');
+        return response()->json($this->formatProjectResponse($project));
     }
 
     public function destroy($id)
@@ -78,5 +80,23 @@ class ProjectController extends Controller
         $project->delete();
 
         return response()->json(['message' => 'Project deleted successfully']);
+    }
+
+    private function formatProjectResponse($project)
+    {
+        return [
+            'id' => $project->id,
+            'title' => $project->title,
+            'description' => $project->description,
+            'start_at' => $project->start_at,
+            'end_at' => $project->end_at,
+            'tasks' => $project->tasks->map(function ($task) {
+                return [
+                    'id' => $task->id,
+                    'title' => $task->title,
+                    'status' => $task->status
+                ];
+            })
+        ];
     }
 }

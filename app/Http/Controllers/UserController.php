@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
@@ -16,25 +17,31 @@ class UserController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:6',
-            'avatar' => 'nullable|string'
+            'password' => 'required|string|min:6|confirmed',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 400);
         }
 
+        $avatarPath = null;
+        if ($request->hasFile('avatar')) {
+            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+        }
+
         $user = User::create([
             'name' => $request->get('name'),
             'email' => $request->get('email'),
             'password' => Hash::make($request->get('password')),
-            'avatar' => $request->get('avatar')
+            'avatar' => $avatarPath ? Storage::url($avatarPath) : null
         ]);
 
         $token = JWTAuth::fromUser($user);
 
         return response()->json(compact('user', 'token'), 201);
     }
+
 
     public function login(Request $request)
     {
@@ -75,19 +82,40 @@ class UserController extends Controller
         $user = Auth::user();
 
         $validator = Validator::make($request->all(), [
-            'name' => 'string|max:255',
-            'email' => 'string|email|max:255|unique:users,email,'.$user->id,
-            'avatar' => 'nullable|string'
+            'name' => 'nullable|string|max:255',
+            'email' => 'nullable|string|email|max:255|unique:users,email,' . $user->id,
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
         if ($validator->fails()) {
-            return response()->json($validator->errors(), 400);
+            return response()->json(['errors' => $validator->errors()], 400);
         }
 
-        $user->update($request->only('name', 'email', 'avatar'));
+        $avatarPath = $user->avatar; 
+
+        if ($request->hasFile('avatar')) {
+            if ($request->file('avatar')->isValid()) {
+                if ($user->avatar && Storage::exists(str_replace('/storage/', '', $user->avatar))) {
+                    Storage::delete(str_replace('/storage/', '', $user->avatar));
+                }
+
+                $avatarPath = $request->file('avatar')->store('avatars', 'public');
+                $avatarPath = Storage::url($avatarPath);
+            } else {
+                return response()->json(['error' => 'Invalid file upload'], 400);
+            }
+        }
+
+        $user->update([
+            'name' => $request->input('name', $user->name),
+            'email' => $request->input('email', $user->email),
+            'avatar' => $avatarPath
+        ]);
 
         return response()->json(['message' => 'User updated successfully', 'user' => $user]);
     }
+
+
 
     public function destroy()
     {
